@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=ChinamaxxBOM
+Comment=Parts and assembly for Eagle and KiCad
+Exec=chinamaxxbom-gui %f
+Terminal=false
+Categories=Development;Electronics;
+StartupWMClass=chinamaxxbom

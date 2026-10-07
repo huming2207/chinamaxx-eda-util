@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChinamaxxBOM saved project version 2",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 2
+    },
+    "board": {
+      "type": "string"
+    },
+    "source_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "input": {
+      "type": "string"
+    },
+    "placement_board": {
+      "type": "string"
+    },
+    "bom": {
+      "$ref": "#/$defs/bom"
+    },
+    "source_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      }
+    },
+    "edits": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/edit"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "board",
+    "source_sha256",
+    "input",
+    "bom",
+    "source_hashes",
+    "edits"
+  ],
+  "$defs": {
+    "part": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reference": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "footprint": {
+          "type": "string"
+        },
+        "lcsc": {
+          "type": "string"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "rotation": {
+          "type": "number"
+        },
+        "side": {
+          "enum": [
+            "top",
+            "bottom"
+          ]
+        },
+        "dnp": {
+          "type": "boolean"
+        },
+        "exclude_bom": {
+          "type": "boolean"
+        },
+        "exclude_cpl": {
+          "type": "boolean"
+        },
+        "placed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "reference",
+        "value",
+        "footprint",
+        "lcsc",
+        "x",
+        "y",
+        "rotation",
+        "side",
+        "dnp",
+        "exclude_bom",
+        "exclude_cpl",
+        "placed"
+      ]
+    },
+    "bom": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "enum": [
+            "kicad",
+            "eagle"
+          ]
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/part"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "format",
+        "parts",
+        "warnings"
+      ]
+    },
+    "edit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lcsc": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^C[0-9]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dnp": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "dx": {
+          "type": "number"
+        },
+        "dy": {
+          "type": "number"
+        },
+        "rotation": {
+          "type": "number"
+        }
+      },
+      "required": []
+    }
+  }
+}

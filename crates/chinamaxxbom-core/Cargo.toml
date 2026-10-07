@@ -1,0 +1,17 @@
+[package]
+name = "chinamaxxbom-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+roxmltree = "0.20"
+sha2 = "0.10"
+cached = { version = "4.0.1", default-features = false, features = ["redb_store"] }
+
+
+kurbo = "0.11.3"

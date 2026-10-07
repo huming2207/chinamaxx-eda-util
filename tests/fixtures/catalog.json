@@ -1,0 +1,5 @@
+[
+ {"lcsc":"C25804","name":"10k resistor","model":"0603WAF1002T5E","brand":"UNI-ROYAL","package":"0603","description":"10k 1% resistor; offline example data, not current stock","stock":1000,"basic":true,"price":0.001},
+ {"lcsc":"C427602","name":"ME6217C33M5G","model":"ME6217C33M5G","brand":"MICRONE","package":"SOT-23-5","description":"3.3V LDO; offline example data, not current stock","stock":0,"basic":false},
+ {"lcsc":"C2320","name":"PH-3A","model":"PH-3A","brand":"BOOMELE","package":"TH","description":"Three pin connector; offline example data, not current stock","stock":100,"basic":false}
+]
