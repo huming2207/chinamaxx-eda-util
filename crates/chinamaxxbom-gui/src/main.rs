@@ -1,6 +1,6 @@
 mod view;
 use gpui::*;
-use gpui_component::Root;
+use gpui_component::{Root, TitleBar};
 fn main() {
     let initial = std::env::args().nth(1);
     Application::new()
@@ -20,8 +20,9 @@ fn main() {
                     window_min_size: Some(size(px(900.), px(650.))),
                     titlebar: Some(TitlebarOptions {
                         title: Some("ChinamaxxBOM — Eagle · KiCad".into()),
-                        ..Default::default()
+                        ..TitleBar::title_bar_options()
                     }),
+                    window_decorations: Some(WindowDecorations::Client),
                     app_id: Some("chinamaxxbom".into()),
                     ..Default::default()
                 },

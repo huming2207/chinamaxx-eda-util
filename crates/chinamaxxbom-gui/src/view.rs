@@ -553,8 +553,9 @@ impl Render for BomView {
             2 => self.library_panel(cx),
             _ => self.board_panel(cx),
         };
-        v_flex()
-            .size_full()
+        let content = v_flex()
+            .flex_1()
+            .min_h_0()
             .p_5()
             .gap_4()
             .bg(cx.theme().background)
@@ -620,6 +621,12 @@ impl Render for BomView {
                     } else {
                         cx.theme().muted_foreground
                     }),
-            )
+            );
+        v_flex()
+            .size_full()
+            .bg(cx.theme().background)
+            .text_color(cx.theme().foreground)
+            .child(gpui_component::TitleBar::new().child("ChinamaxxBOM"))
+            .child(content)
     }
 }
