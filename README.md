@@ -4,6 +4,18 @@ A Rust application for **Eagle XML projects/schematics/boards and KiCad 10+**, w
 
 This is an initial working implementation of the part-library and assembly workflows researched in [JLCImport](https://github.com/jvanderberg/kicad_jlcimport) and [KiCad JLCPCB Tools](https://github.com/Bouni/kicad-jlcpcb-tools). It is not yet feature-equivalent to either mature plugin. See [implementation status](docs/implementation.md) for supported geometry and remaining work.
 
+## Screenshots
+
+The BOM picker and component inspector, shown with synthetic demonstration data.
+
+**Light mode**
+
+![ChinamaxxBOM in light mode showing the BOM table and component inspector](docs/images/bom-light.png)
+
+**Dark mode**
+
+![ChinamaxxBOM in dark mode showing the BOM table and component inspector](docs/images/bom-dark.png)
+
 ## Build and run
 
 ```sh
