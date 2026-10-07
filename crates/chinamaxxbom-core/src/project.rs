@@ -142,7 +142,11 @@ impl Project {
                 "Non-finite correction for {reference}"
             );
             if let Some(id) = &e.lcsc {
-                p.lcsc = crate::lcsc_id(id)?;
+                p.lcsc = if id.is_empty() {
+                    String::new()
+                } else {
+                    crate::lcsc_id(id)?
+                };
             }
             if let Some(dnp) = e.dnp {
                 p.dnp = dnp;

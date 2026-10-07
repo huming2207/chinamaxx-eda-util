@@ -271,7 +271,9 @@ pub fn assigned_copy(s: &str, assignments: &BTreeMap<String, String>) -> Result<
             board.parts.iter().any(|p| &p.reference == r),
             "Unknown reference {r}"
         );
-        crate::lcsc_id(id)?;
+        if !id.is_empty() {
+            crate::lcsc_id(id)?;
+        }
     }
     let mut edits = vec![];
     match board.format {

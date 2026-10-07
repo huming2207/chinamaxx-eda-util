@@ -47,3 +47,6 @@ requires an unambiguous project; otherwise select the specific file. Eagle `.epf
 uses its same-basename schematic or the sole `.sch` in the directory. KiCad sheet
 paths containing unresolved `${...}` variables are rejected explicitly. Only the
 default assembly variant is loaded.
+
+An empty `lcsc` string explicitly clears an assignment; `null` retains the CAD
+source value. Clearing the inspector field and saving stores the empty string.

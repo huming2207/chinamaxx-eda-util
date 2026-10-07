@@ -118,33 +118,7 @@ pub fn load(path: &Path) -> Result<Input> {
     let board = if board_path.exists() {
         files.insert(board_path.clone());
         let layout = board::load(&board_path)?;
-        for part in &mut bom.parts {
-            if let Some(placement) = layout.parts.iter().find(|p| p.reference == part.reference) {
-                part.x = placement.x;
-                part.y = placement.y;
-                part.rotation = placement.rotation;
-                part.side = placement.side;
-                part.placed = true;
-                part.exclude_cpl |= placement.exclude_cpl;
-                part.dnp |= placement.dnp;
-                // Physical package and coordinates always come from the board.
-                part.footprint = placement.footprint.clone();
-                if part.lcsc.is_empty() {
-                    part.lcsc = placement.lcsc.clone();
-                }
-            }
-        }
-        bom.warnings.extend(layout.warnings);
-        for extra in layout
-            .parts
-            .iter()
-            .filter(|p| !p.exclude_bom && !bom.parts.iter().any(|s| s.reference == p.reference))
-        {
-            bom.warnings.push(format!(
-                "{} exists only on the board; schematic BOM omits it",
-                extra.reference
-            ));
-        }
+        attach_layout(&mut bom, layout);
         Some(board_path)
     } else {
         bom.warnings
@@ -171,6 +145,36 @@ pub fn load(path: &Path) -> Result<Input> {
         files,
         bom,
     })
+}
+fn attach_layout(bom: &mut Board, layout: Board) {
+    for part in &mut bom.parts {
+        if let Some(placement) = layout.parts.iter().find(|p| p.reference == part.reference) {
+            part.x = placement.x;
+            part.y = placement.y;
+            part.rotation = placement.rotation;
+            part.side = placement.side;
+            part.placed = true;
+            part.exclude_bom |= placement.exclude_bom;
+            part.exclude_cpl |= placement.exclude_cpl;
+            part.dnp |= placement.dnp;
+            // Physical package and coordinates always come from the board.
+            part.footprint = placement.footprint.clone();
+            if part.lcsc.is_empty() {
+                part.lcsc = placement.lcsc.clone();
+            }
+        }
+    }
+    bom.warnings.extend(layout.warnings);
+    for extra in layout
+        .parts
+        .iter()
+        .filter(|p| !p.exclude_bom && !bom.parts.iter().any(|s| s.reference == p.reference))
+    {
+        bom.warnings.push(format!(
+            "{} exists only on the board; schematic BOM omits it",
+            extra.reference
+        ));
+    }
 }
 fn collect_sheets(
     path: &Path,
@@ -335,4 +339,21 @@ pub fn parse_eagle_schematic(s: &str) -> Result<Board> {
         parts,
         warnings: vec!["Eagle default assembly variant is used.".into()],
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn paired_board_preserves_independent_bom_exclusion() {
+        let mut bom = parse_kicad_netlist(r#"<export><components><comp ref="R1"><value>10k</value><footprint>R_0603</footprint></comp></components></export>"#).unwrap();
+        let mut layout = bom.clone();
+        layout.parts[0].placed = true;
+        layout.parts[0].exclude_bom = true;
+        layout.parts[0].x = 12.;
+        attach_layout(&mut bom, layout);
+        let result = crate::export::assembly(&bom, false).unwrap();
+        assert_eq!(result.bom.lines().count(), 1);
+        assert!(result.cpl.contains("R1,10k,R_0603,12.0"));
+    }
 }

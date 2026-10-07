@@ -1,3 +1,4 @@
+use crate::tables::{BomTable, CatalogTable};
 use anyhow::{Context as _, Result};
 use chinamaxxbom_core::{
     board::Board,
@@ -9,7 +10,11 @@ use chinamaxxbom_core::{
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputState};
+use gpui_component::tab::{Tab, TabBar};
+use gpui_component::table::{Table, TableEvent, TableState};
+use gpui_component::{checkbox::Checkbox, scroll::ScrollableElement, Sizable};
 use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Selectable};
+use gpui_component::{IconName, Theme, ThemeMode};
 use std::path::{Path, PathBuf};
 
 enum JobResult {
@@ -18,6 +23,10 @@ enum JobResult {
     Message(String),
 }
 pub struct BomView {
+    bom_table: Entity<TableState<BomTable>>,
+    catalog_table: Entity<TableState<CatalogTable>>,
+    catalog_selection: Option<usize>,
+    _subscriptions: Vec<Subscription>,
     path: Entity<InputState>,
     out: Entity<InputState>,
     query: Entity<InputState>,
@@ -52,6 +61,37 @@ fn text(state: &Entity<InputState>, cx: &App) -> String {
 }
 impl BomView {
     pub fn new(initial: Option<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let bom_table = cx.new(|cx| {
+            TableState::new(BomTable::new(), window, cx)
+                .col_movable(false)
+                .col_selectable(false)
+        });
+        let catalog_table = cx.new(|cx| {
+            TableState::new(CatalogTable::new(), window, cx)
+                .col_movable(false)
+                .col_selectable(false)
+        });
+        let subscriptions = vec![
+            cx.subscribe_in(&bom_table, window, |v, table, event, window, cx| {
+                if let TableEvent::SelectRow(index) = event {
+                    let reference = table
+                        .read(cx)
+                        .delegate()
+                        .rows
+                        .get(*index)
+                        .map(|p| p.reference.clone());
+                    if let Some(reference) = reference {
+                        v.select(reference, window, cx);
+                    }
+                }
+            }),
+            cx.subscribe_in(&catalog_table, window, |v, _, event, _, cx| {
+                if let TableEvent::SelectRow(index) = event {
+                    v.catalog_selection = Some(*index);
+                    cx.notify();
+                }
+            }),
+        ];
         let cache_settings = chinamaxxbom_core::cache::Cache::for_user();
         let cache_days = cache_settings
             .as_ref()
@@ -61,6 +101,10 @@ impl BomView {
         let mut input =
             |value: &str| cx.new(|cx| InputState::new(window, cx).default_value(value.to_owned()));
         let mut v = Self {
+            bom_table,
+            catalog_table,
+            catalog_selection: None,
+            _subscriptions: subscriptions,
             path: input(initial.as_deref().unwrap_or("")),
             out: input("output/assembly"),
             query: input(""),
@@ -121,6 +165,11 @@ impl BomView {
                             path.display()
                         );
                         v.project = Some(p);
+                        v.bom_table.update(cx, |t, cx| {
+                            t.delegate_mut().set_rows(b.parts.clone());
+                            t.refresh(cx);
+                            cx.notify();
+                        });
                         v.board = Some(b);
                         v.project_path = Some(path);
                     }
@@ -139,6 +188,13 @@ impl BomView {
                                 None => "offline catalogue".into(),
                             }
                         );
+                        v.catalog_selection = None;
+                        v.catalog_table.update(cx, |t, cx| {
+                            t.clear_selection(cx);
+                            t.delegate_mut().rows = r.results.clone();
+                            t.refresh(cx);
+                            cx.notify();
+                        });
                         v.results = r.results;
                     }
                     Ok(JobResult::Message(s)) => v.status = s,
@@ -157,6 +213,12 @@ impl BomView {
         self.selected = None;
         self.project = None;
         self.board = None;
+        self.bom_table.update(cx, |t, cx| {
+            t.delegate_mut().rows.clear();
+            t.clear_selection(cx);
+            t.refresh(cx);
+            cx.notify();
+        });
         self.project_path = None;
         self.job("Opening board…", cx, move || {
             let (project, project_path) = Project::open(&path)?;
@@ -257,7 +319,7 @@ impl BomView {
         self.job("Saving assignment…", cx, move || {
             let e = Edit {
                 lcsc: if id.trim().is_empty() {
-                    None
+                    Some(String::new())
                 } else {
                     Some(chinamaxxbom_core::lcsc_id(&id)?)
                 },
@@ -310,132 +372,198 @@ impl BomView {
         });
     }
     fn board_panel(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut rows = v_flex().gap_1();
-        if let Some(board) = &self.board {
-            for p in &board.parts {
-                let reference = p.reference.clone();
-                let selected = self.selected.as_ref() == Some(&reference);
-                let label = format!(
-                    "{:<8} {:<24} {:<12} {:<7} {}",
-                    p.reference,
-                    p.value,
-                    if p.lcsc.is_empty() {
-                        "Unassigned"
-                    } else {
-                        &p.lcsc
-                    },
-                    if p.side == chinamaxxbom_core::board::Side::Top {
-                        "Top"
-                    } else {
-                        "Bottom"
-                    },
-                    if p.dnp { "DNP" } else { "" }
-                );
-                rows = rows.child(
-                    Button::new(SharedString::from(format!("part-{}", p.reference)))
-                        .label(label)
-                        .w_full()
-                        .selected(selected)
-                        .on_click(cx.listener(move |v, _, window, cx| {
-                            v.select(reference.clone(), window, cx)
-                        }))
-                        .disabled(self.busy),
-                );
-            }
-        } else {
-            rows = rows.child(
-                div()
-                    .p_6()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("Open a project, schematic, board, or saved JSON above."),
+        let selected = self.selected.as_ref().and_then(|r| {
+            self.board
+                .as_ref()?
+                .parts
+                .iter()
+                .find(|p| &p.reference == r)
+        });
+        let disabled = self.busy || selected.is_none();
+        let (count, assigned) = self
+            .board
+            .as_ref()
+            .map(|b| {
+                let parts: Vec<_> = b
+                    .parts
+                    .iter()
+                    .filter(|p| !p.dnp && !p.exclude_bom)
+                    .collect();
+                (
+                    parts.len(),
+                    parts.iter().filter(|p| !p.lcsc.is_empty()).count(),
+                )
+            })
+            .unwrap_or((0, 0));
+        let details = v_flex().gap_4().p_4()
+            .child(v_flex().gap_1()
+                .child(div().text_xs().text_color(cx.theme().muted_foreground).child("COMPONENT"))
+                .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child(self.selected.clone().unwrap_or("No selection".into())))
+                .child(div().text_sm().child(selected.map(|p| p.value.clone()).unwrap_or("Select a table row to inspect it.".into())))
+                .child(div().text_xs().text_color(cx.theme().muted_foreground).child(selected.map(|p| p.footprint.clone()).unwrap_or_default())))
+            .child(Button::new("find-part").label("Find JLCPCB part").primary().w_full().disabled(disabled)
+                .on_click(cx.listener(|v,_,w,cx| {
+                    if let Some(part) = v.selected.as_ref().and_then(|r| v.board.as_ref()?.parts.iter().find(|p| &p.reference == r)) {
+                        let query = part.value.clone();
+                        v.query.update(cx,|s,cx|s.set_value(query,w,cx));
+                    }
+                    v.tab=1;cx.notify();
+                })))
+            .child(v_flex().gap_2().child(div().text_sm().child("LCSC part number")).child(Input::new(&self.lcsc).disabled(disabled)))
+            .child(Checkbox::new("dnp").label("Do not populate").checked(self.dnp).disabled(disabled)
+                .on_click(cx.listener(|v,checked,_,cx| {v.dnp=*checked;cx.notify();})))
+            .child(v_flex().gap_3().pt_3().border_t_1().border_color(cx.theme().border)
+                .child(div().text_xs().text_color(cx.theme().muted_foreground).child("PLACEMENT CORRECTIONS"))
+                .child(h_flex().gap_2()
+                    .child(v_flex().flex_1().gap_1().child(div().text_sm().child("X offset · mm")).child(Input::new(&self.dx).disabled(disabled)))
+                    .child(v_flex().flex_1().gap_1().child(div().text_sm().child("Y offset · mm")).child(Input::new(&self.dy).disabled(disabled))))
+                .child(v_flex().gap_1().child(div().text_sm().child("Rotation · degrees")).child(Input::new(&self.rotation).disabled(disabled))))
+            .child(Button::new("apply").label("Save changes").w_full().disabled(disabled).on_click(cx.listener(|v,_,_,cx|v.apply(cx))))
+            .child(div().text_xs().text_color(cx.theme().muted_foreground).child("JLCPCB picks save automatically. Manual changes use Save changes. Check placement in JLCPCB’s preview before ordering."));
+        let footer = v_flex()
+            .flex_shrink_0()
+            .gap_3()
+            .pt_3()
+            .border_t_1()
+            .border_color(cx.theme().border)
+            .child(
+                h_flex()
+                    .gap_3()
+                    .child(div().text_sm().w(px(100.)).child("Output folder"))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(Input::new(&self.out).disabled(self.busy)),
+                    )
+                    .child(
+                        Button::new("export")
+                            .label(
+                                if self.project.as_ref().is_some_and(|p| p.has_placement()) {
+                                    "Export BOM + CPL"
+                                } else {
+                                    "Export BOM"
+                                },
+                            )
+                            .primary()
+                            .disabled(self.busy || self.project.is_none())
+                            .on_click(cx.listener(|v, _, _, cx| {
+                                let p = match v.project.clone() {
+                                    Some(p) => p,
+                                    None => return,
+                                };
+                                let out = text(&v.out, cx);
+                                let missing = v.allow_missing;
+                                let gerbers = v.gerbers && p.has_placement();
+                                v.job("Exporting assembly…", cx, move || {
+                                    let r = export::export(&p, Path::new(&out), missing, gerbers)?;
+                                    Ok(JobResult::Message(format!(
+                                        "Exported {} placements to {}. {}",
+                                        r.included,
+                                        out,
+                                        r.warnings.join(" ")
+                                    )))
+                                });
+                            })),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .gap_5()
+                    .child(
+                        Checkbox::new("missing")
+                            .label("Allow unassigned parts")
+                            .checked(self.allow_missing)
+                            .disabled(self.busy)
+                            .on_click(cx.listener(|v, checked, _, cx| {
+                                v.allow_missing = *checked;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Checkbox::new("gerbers")
+                            .label("Include KiCad Gerbers")
+                            .checked(self.gerbers)
+                            .disabled(
+                                self.busy
+                                    || !self.project.as_ref().is_some_and(|p| {
+                                        p.has_placement()
+                                            && p.bom.as_ref().is_some_and(|b| {
+                                                b.format == chinamaxxbom_core::board::Format::Kicad
+                                            })
+                                    }),
+                            )
+                            .on_click(cx.listener(|v, checked, _, cx| {
+                                v.gerbers = *checked;
+                                cx.notify();
+                            })),
+                    ),
             );
-        }
-        let details=v_flex().w(px(315.)).flex_shrink_0().gap_3().p_4().bg(cx.theme().muted).rounded_lg()
-            .child(div().text_lg().child(self.selected.clone().unwrap_or("Select a component".into())))
-            .child("LCSC part number").child(Input::new(&self.lcsc).disabled(self.busy||self.selected.is_none()))
-            .child(h_flex().gap_2().child(Button::new("dnp").label(if self.dnp{"☑ Do not populate"}else{"☐ Do not populate"}).selected(self.dnp).disabled(self.busy).on_click(cx.listener(|v,_,_,cx|{v.dnp=!v.dnp;cx.notify();}))))
-            .child("Assembly offset X / Y (mm)")
-            .child(h_flex().gap_2().child(Input::new(&self.dx).disabled(self.busy)).child(Input::new(&self.dy).disabled(self.busy)))
-            .child("Rotation correction (degrees)").child(Input::new(&self.rotation).disabled(self.busy))
-            .child(Button::new("apply").label("Apply & save assignment").primary().disabled(self.busy||self.selected.is_none()).on_click(cx.listener(|v,_,_,cx|v.apply(cx))))
-            .child(div().text_sm().text_color(cx.theme().muted_foreground).child("Offsets use assembly world axes: X right, Y up. Changes are saved in the project sidecar."));
-        v_flex().gap_3().flex_1().min_h_0()
-            .child(h_flex().gap_3().flex_1().min_h_0().items_start().child(div().id("parts-scroll").flex_1().h_full().overflow_y_scroll().child(rows)).child(details))
-            .child(h_flex().gap_2().child(div().w(px(145.)).child("New output folder")).child(Input::new(&self.out).disabled(self.busy)))
-            .child(h_flex().gap_2()
-                .child(Button::new("missing").label("Allow missing parts").selected(self.allow_missing).disabled(self.busy).on_click(cx.listener(|v,_,_,cx|{v.allow_missing=!v.allow_missing;cx.notify();})))
-                .child(Button::new("gerbers").label("Include KiCad Gerbers").selected(self.gerbers).disabled(self.busy || !self.project.as_ref().is_some_and(|p| p.has_placement())).on_click(cx.listener(|v,_,_,cx|{v.gerbers=!v.gerbers;cx.notify();})))
-                .child(Button::new("export").label(if self.project.as_ref().is_some_and(|p| p.has_placement()) { "Export BOM + CPL" } else { "Export BOM" }).primary().disabled(self.busy||self.project.is_none()).on_click(cx.listener(|v,_,_,cx|{
-                    let p = match v.project.clone() { Some(p) => p, None => return };let out=text(&v.out,cx);let missing=v.allow_missing;let gerbers=v.gerbers && p.has_placement();
-                    v.job("Exporting assembly…",cx,move||{let r=export::export(&p,Path::new(&out),missing,gerbers)?;Ok(JobResult::Message(format!("Exported {} placements to {}. {}",r.included,out,r.warnings.join(" "))))});
-                }))))
-            .child(div().text_sm().text_color(cx.theme().muted_foreground).child("Footprint/element origins are used for placement. Verify component centres and rotations in JLCPCB's preview before ordering."))
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .gap_3()
+            .overflow_hidden()
+            .child(
+                h_flex()
+                    .flex_shrink_0()
+                    .justify_between()
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Bill of materials"),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!("{assigned} / {count} assigned")),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .gap_3()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_hidden()
+                    .items_start()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .overflow_hidden()
+                            .child(Table::new(&self.bom_table).small()),
+                    )
+                    .child(
+                        div()
+                            .id("component-inspector")
+                            .w(px(285.))
+                            .flex_shrink_0()
+                            .h_full()
+                            .min_h_0()
+                            .border_1()
+                            .border_color(cx.theme().border)
+                            .rounded_md()
+                            .bg(cx.theme().background)
+                            .child(details)
+                            .overflow_y_scrollbar(),
+                    ),
+            )
+            .child(footer)
             .into_any_element()
     }
     fn search_panel(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut rows = v_flex().gap_2();
-        for (i, p) in self.results.iter().enumerate() {
-            let id = p.lcsc.clone();
-            let import_id = p.lcsc.clone();
-            let datasheet = p.datasheet.clone();
-            rows = rows.child(
-                v_flex()
-                    .p_3()
-                    .gap_2()
-                    .rounded_md()
-                    .bg(cx.theme().muted)
-                    .child(div().child(format!(
-                        "{}   {}   {}   {}",
-                        p.lcsc, p.model, p.brand, p.package
-                    )))
-                    .child(div().text_sm().child(format!(
-                            "{} · stock {} · unit price {} · {}",
-                            if p.basic { "Basic" } else { "Extended" },
-                            p.stock,
-                            p.price
-                                .map(|v| format!("{v:.4}"))
-                                .unwrap_or("unknown".into()),
-                            p.description
-                        )))
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(
-                                Button::new(SharedString::from(format!("assign-{i}")))
-                                    .label("Use for selected component")
-                                    .disabled(self.busy || self.selected.is_none())
-                                    .on_click(cx.listener(move |v, _, w, cx| {
-                                        v.lcsc.update(cx, |s, cx| s.set_value(id.clone(), w, cx));
-                                        v.tab = 0;
-                                        v.pick(id.clone(), cx);
-                                    })),
-                            )
-                            .child(
-                                Button::new(SharedString::from(format!("import-{i}")))
-                                    .label("Import library…")
-                                    .disabled(self.busy)
-                                    .on_click(cx.listener(move |v, _, w, cx| {
-                                        v.import_id.update(cx, |s, cx| {
-                                            s.set_value(import_id.clone(), w, cx)
-                                        });
-                                        v.bundle.update(cx, |s, cx| s.set_value("", w, cx));
-                                        v.tab = 2;
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(
-                                Button::new(SharedString::from(format!("datasheet-{i}")))
-                                    .label("Datasheet")
-                                    .disabled(!datasheet.starts_with("https://"))
-                                    .on_click(cx.listener(move |_, _, _, cx| {
-                                        if datasheet.starts_with("https://") {
-                                            cx.open_url(&datasheet);
-                                        }
-                                    })),
-                            ),
-                    ),
-            );
-        }
+        let part = self
+            .catalog_selection
+            .and_then(|i| self.results.get(i))
+            .cloned();
+        let id = part.as_ref().map(|p| p.lcsc.clone()).unwrap_or_default();
+        let library_id = id.clone();
+        let datasheet = part
+            .as_ref()
+            .map(|p| p.datasheet.clone())
+            .unwrap_or_default();
         v_flex()
             .gap_3()
             .flex_1()
@@ -525,12 +653,12 @@ impl BomView {
             .child(div().text_sm().text_color(cx.theme().muted_foreground)
                 .child("Search runs on request. Cached stock and prices may be as old as the configured TTL."))
             .child(
-                div()
-                    .id("search-results")
-                    .flex_1()
-                    .overflow_y_scroll()
-                    .child(rows),
+                div().flex_1().min_h_0().overflow_hidden().child(Table::new(&self.catalog_table).small()),
             )
+            .child(h_flex().flex_shrink_0().gap_2()
+                .child(Button::new("assign-catalog-part").label("Use selected part").primary().disabled(self.busy||self.selected.is_none()||part.is_none()).on_click(cx.listener(move|v,_,w,cx|{v.lcsc.update(cx,|s,cx|s.set_value(id.clone(),w,cx));v.tab=0;v.pick(id.clone(),cx);})))
+                .child(Button::new("catalog-import").label("Import library").disabled(self.busy||part.is_none()).on_click(cx.listener(move|v,_,w,cx|{v.import_id.update(cx,|s,cx|s.set_value(library_id.clone(),w,cx));v.bundle.update(cx,|s,cx|s.set_value("",w,cx));v.tab=2;cx.notify();})))
+                .child(Button::new("catalog-datasheet").label("Datasheet").disabled(!datasheet.starts_with("https://")).on_click(cx.listener(move|_,_,_,cx|{if datasheet.starts_with("https://"){cx.open_url(&datasheet);}}))))
             .into_any_element()
     }
     fn library_panel(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -556,77 +684,144 @@ impl Render for BomView {
         let content = v_flex()
             .flex_1()
             .min_h_0()
-            .p_5()
-            .gap_4()
-            .bg(cx.theme().background)
-            .text_color(cx.theme().foreground)
+            .overflow_hidden()
             .child(
                 h_flex()
-                    .justify_between()
-                    .child(
-                        v_flex()
-                            .child(div().text_2xl().child("ChinamaxxBOM"))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child("Eagle + KiCad 10 · Parts, libraries & assembly"),
-                            ),
-                    )
-                    .child(div().child(if self.busy { "Working…" } else { "Ready" })),
-            )
-            .child(
-                h_flex()
+                    .flex_shrink_0()
                     .gap_2()
-                    .child(Input::new(&self.path).disabled(self.busy))
+                    .px_4()
+                    .py_3()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("Project"),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(Input::new(&self.path).small().disabled(self.busy)),
+                    )
                     .child(
                         Button::new("browse-board")
                             .label("Browse…")
+                            .small()
                             .disabled(self.busy)
                             .on_click(cx.listener(|v, _, w, cx| v.browse(0, w, cx))),
                     )
                     .child(
                         Button::new("open-board")
-                            .label("Open project / schematic")
+                            .label("Open")
+                            .small()
                             .disabled(self.busy)
                             .on_click(cx.listener(|v, _, _, cx| v.open(cx))),
+                    )
+                    .child(
+                        Button::new("theme-toggle")
+                            .icon(if cx.theme().is_dark() {
+                                IconName::Sun
+                            } else {
+                                IconName::Moon
+                            })
+                            .label(if cx.theme().is_dark() {
+                                "Light mode"
+                            } else {
+                                "Dark mode"
+                            })
+                            .small()
+                            .on_click(cx.listener(|_, _, window, cx| {
+                                let mode = if cx.theme().is_dark() {
+                                    ThemeMode::Light
+                                } else {
+                                    ThemeMode::Dark
+                                };
+                                Theme::change(mode, Some(window), cx);
+                            })),
                     ),
             )
             .child(
-                h_flex().gap_2().children(
-                    ["Assembly", "Parts catalogue", "Library import"]
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, label)| {
-                            Button::new(SharedString::from(format!("tab-{i}")))
-                                .label(label)
-                                .selected(self.tab == i as u8)
-                                .on_click(cx.listener(move |v, _, _, cx| {
-                                    v.tab = i as u8;
-                                    cx.notify();
-                                }))
-                        }),
+                div().flex_shrink_0().px_4().pt_1().child(
+                    TabBar::new("workspace-tabs")
+                        .underline()
+                        .selected_index(self.tab as usize)
+                        .children([
+                            Tab::new().label("Bill of materials"),
+                            Tab::new().label("JLCPCB catalogue"),
+                            Tab::new().label("Library import"),
+                        ])
+                        .on_click(cx.listener(|v, index, _, cx| {
+                            v.tab = *index as u8;
+                            cx.notify();
+                        })),
                 ),
             )
-            .child(panel)
-            .child(
+            .children(self.error.as_ref().map(|error| {
                 div()
-                    .id("status")
-                    .max_h(px(140.))
-                    .overflow_y_scroll()
+                    .id("operation-error")
+                    .flex_shrink_0()
+                    .max_h(px(90.))
+                    .px_4()
+                    .py_2()
                     .text_sm()
-                    .child(self.error.clone().unwrap_or_else(|| self.status.clone()))
-                    .text_color(if self.error.is_some() {
-                        cx.theme().danger
+                    .text_color(cx.theme().danger)
+                    .overflow_y_scroll()
+                    .child(error.clone())
+            }))
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_hidden()
+                    .p_4()
+                    .child(panel),
+            )
+            .child(
+                h_flex()
+                    .flex_shrink_0()
+                    .h(px(30.))
+                    .px_4()
+                    .gap_3()
+                    .border_t_1()
+                    .border_color(cx.theme().border)
+                    .bg(cx.theme().muted)
+                    .child(div().text_xs().child(if self.busy {
+                        "Working…"
+                    } else if self.error.is_some() {
+                        "Error"
                     } else {
-                        cx.theme().muted_foreground
-                    }),
+                        "Ready"
+                    }))
+                    .child(
+                        div()
+                            .id("status")
+                            .flex_1()
+                            .min_w_0()
+                            .text_xs()
+                            .truncate()
+                            .child(self.error.clone().unwrap_or_else(|| self.status.clone()))
+                            .text_color(if self.error.is_some() {
+                                cx.theme().danger
+                            } else {
+                                cx.theme().muted_foreground
+                            }),
+                    ),
             );
         v_flex()
             .size_full()
+            .overflow_hidden()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
-            .child(gpui_component::TitleBar::new().child("ChinamaxxBOM"))
+            .child(
+                gpui_component::TitleBar::new().child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("ChinamaxxBOM"),
+                ),
+            )
             .child(content)
     }
 }

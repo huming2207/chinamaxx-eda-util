@@ -5,7 +5,7 @@ gpui-component 0.5.1, and KiCad 10.0.6.
 
 ## Automated checks
 
-`cargo test --offline --workspace` passed **32 tests**:
+`cargo test --offline --workspace` passed **34 tests**:
 
 - 20 core integration tests: equivalent Eagle/KiCad coordinates, bottom rotation,
   DNP, independent exclusions, grouping/CSV escaping, missing assignments,
@@ -13,9 +13,10 @@ gpui-component 0.5.1, and KiCad 10.0.6.
   references, lossless LCSC edits, source parsing, protected outputs, local
   catalogue filtering, supplier error schemas, two real EasyEDA conversions,
   units/drills, missing pin mappings, and unsupported pad rejection.
-- 6 picker tests: schematic/project loading, automatic save and resume, failed-save rollback,
+- 7 picker tests: schematic/project loading, automatic save and resume, failed-save rollback,
   BOM-only export, missing placements, source-change protection, native netlist flags,
-  and exact requested CSV columns/quantities.
+  exact requested CSV columns/quantities, and clearing/resuming LCSC assignments.
+- 1 importer regression test: paired-board BOM exclusion remains independent of CPL inclusion.
 - 3 cache tests: persistence across instances, retry after failure, backend expiry,
   and validation of the 7–60-day bounds.
 - 3 CLI integration tests: assignment/export workflow, unknown option protection,
@@ -37,7 +38,7 @@ used once the stable rustfmt component is available.
 `python3 scripts/validate-native.py` passed against KiCad **10.0.6**.
 Evidence/artifacts are in:
 
-`output/native-validation-20261007-124554/validation.json`
+`output/native-validation-20261007-130638/validation.json`
 
 The script verifies:
 
@@ -76,7 +77,7 @@ schematic placement and forward/back annotation have not been tested.
 
 `python3 scripts/validate-picker.py PROJECT.kicad_pro BOM-example.csv CPL-example.csv`
 was run on a copy of a supplied hierarchical KiCad project. Original hardware files were not changed.
-Evidence: `output/picker-validation-20261007-124733/validation.json`.
+Project-specific validation artifacts were removed after checking the results.
 
 - 90 components loaded through the three-sheet hierarchy; five CAD source files hashed.
 - All 35 BOM rows match the supplied the supplied BOM CSV exactly as parsed CSV.
@@ -88,3 +89,11 @@ Evidence: `output/picker-validation-20261007-124733/validation.json`.
 - Picking in one CLI process and reopening in another retained the assignment.
 - A modified child schematic was detected and resume was rejected without losing picks.
 - The saved version 2 JSON passed validation against `docs/project.schema.json`.
+
+## Table layout and themes
+
+The rebuilt GUI was captured on X11 with a supplied 169-component Eagle project. Light and dark rendering, the table headers, natural reference
+order, and the separate inspector/export layout were visually inspected at full
+and reduced window sizes. Theme switching uses GPUI's built-in light/dark palettes.
+The user also confirmed the revised UI looked better. Complete mouse-driven
+picking and saving still require manual interaction checks.

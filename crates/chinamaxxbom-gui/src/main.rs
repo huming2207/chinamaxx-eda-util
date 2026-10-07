@@ -1,3 +1,4 @@
+mod tables;
 mod view;
 use gpui::*;
 use gpui_component::{Root, TitleBar};

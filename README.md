@@ -27,10 +27,12 @@ On machines with xkbcommon runtime libraries but no development symlinks, [scrip
 ## Desktop workflow
 
 1. Start `chinamaxxbom-gui [path]`. Open a `.kicad_pro`, Eagle `.epf`, `.kicad_sch`, Eagle XML `.sch`, board, project directory, or saved JSON. The BOM loads automatically; KiCad includes hierarchical sheets and merges multi-unit symbols through its native netlist exporter. Eagle uses the embedded device/package definitions, not schematic drawing positions.
-2. Select a component in **Assembly**, then search in **Parts catalogue**. Searches use JLC's API and the shared cache. Click **Use for selected component**: the choice saves immediately to `<input>.chinamaxxbom.json` without another confirmation. Manual LCSC/DNP/placement adjustments use **Apply & save assignment**.
+2. Select a row in **Bill of materials**, then use **Find JLCPCB part** or open **JLCPCB catalogue**. Searches use JLC's API and the shared cache. Select a catalogue row and click **Use selected part**: the choice saves immediately to `<input>.chinamaxxbom.json` without another confirmation. Manual LCSC/DNP/placement adjustments use **Save changes**.
 3. Reopen the same input or its JSON to resume. Every completed selection is atomically saved as indented JSON. A crash during saving leaves the previous complete file or the new complete file. See [the JSON schema](docs/project.schema.json) and [saved project format](docs/project-format.md).
 4. Choose a new output folder and export. A matching same-basename `.kicad_pcb` or `.brd` supplies CPL placement. Without a board, export produces a BOM only. If a paired board is missing required schematic references, export stops and identifies them. KiCad boards can optionally generate Gerbers and Excellon files.
 5. **Library import** accepts an LCSC ID or an offline bundle, and writes KiCad/Eagle libraries into a new folder.
+
+The BOM and catalogue use resizable tables with fixed column headers and horizontal/vertical scrolling. The component inspector scrolls independently; export controls remain below it. References use natural ordering (`C2` before `C10`). The toolbar **Dark mode / Light mode** button changes the whole interface; each launch starts with the desktop theme.
 
 CAD files are not changed by assignment or export. The CLI `write-board` command can produce a separate board copy containing the LCSC field edits. DNP and placement corrections remain in the ChinamaxxBOM sidecar. Eagle board copies must not replace the board of a paired schematic without handling Eagle's forward/back annotation yourself.
 
@@ -89,7 +91,7 @@ The component picker calls **JLCPCB's API directly**. It never downloads a SQLit
 
 Repeated searches use disk cache across app restarts. Concurrent requests for the same missing entry are coalesced with a process-shared file lock. Uncached requests are spaced at least three seconds apart across the GUI and CLI; typing does not issue requests, and errors are not automatically retried. Only validated successful responses are cached; expired responses are refreshed, and fetch failures are surfaced instead of silently returning stale stock.
 
-Set the TTL in the GUI Parts catalogue panel, or run `chinamaxxbom cache-days 30`. Run `chinamaxxbom cache-days` to read it. The setting is shared by the GUI and CLI and applies on subsequent requests, including existing entries; cache hits do not extend expiry. Storage and expiry are handled by the `cached` crate.
+Set the TTL in the GUI JLCPCB catalogue panel, or run `chinamaxxbom cache-days 30`. Run `chinamaxxbom cache-days` to read it. The setting is shared by the GUI and CLI and applies on subsequent requests, including existing entries; cache hits do not extend expiry. Storage and expiry are handled by the `cached` crate.
 
 The cache uses the standard user cache directory on Linux, respecting `XDG_CACHE_HOME`. Set `CHINAMAXXBOM_CACHE_DIR` to choose another directory. Search JSON includes `cache.hit`, `cache.fetched_at` and `cache.expires_at` (Unix seconds); the GUI labels cached results. Cached stock/prices can be as old as the configured TTL. The optional offline JSON catalogue is a user-supplied file, not a downloaded supplier database.
 

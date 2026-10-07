@@ -127,3 +127,40 @@ fn netlist_properties_keep_bom_exclusion_dnp_and_fields() {
     assert!(board.parts[1].dnp);
     assert!(board.parts[2].exclude_bom && board.parts[2].exclude_cpl);
 }
+
+#[test]
+fn clearing_lcsc_persists_and_writes_an_empty_cad_field() {
+    let tmp = tempfile::tempdir().unwrap();
+    let sch = eagle(tmp.path(), true);
+    let (mut p, sidecar) = Project::open(&sch).unwrap();
+    p.edit(
+        "R2",
+        Edit {
+            lcsc: Some(String::new()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    p.save(&sidecar).unwrap();
+    let restored = Project::load(&sidecar).unwrap();
+    assert!(restored
+        .snapshot()
+        .unwrap()
+        .parts
+        .iter()
+        .find(|p| p.reference == "R2")
+        .unwrap()
+        .lcsc
+        .is_empty());
+    assert!(export::assembly(&restored.snapshot().unwrap(), false).is_err());
+    let copy = tmp.path().join("assigned.brd");
+    restored.write_board_copy(&copy).unwrap();
+    assert!(chinamaxxbom_core::board::load(&copy)
+        .unwrap()
+        .parts
+        .iter()
+        .find(|p| p.reference == "R2")
+        .unwrap()
+        .lcsc
+        .is_empty());
+}
